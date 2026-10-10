@@ -15,7 +15,7 @@ import { OnFootMode } from '../modes/onFootMode';
 export class Game {
   private renderer: THREE.WebGLRenderer;
   private input = new Input();
-  private state: GameState = { score: 0, lives: 3 };
+  private state: GameState = { score: 0, lives: 3, combo: 0, bestCombo: 0 };
   private modes: GameMode[];
   private currentIndex = 0;
   private currentLevel = 0;
@@ -28,6 +28,7 @@ export class Game {
   private hudMode = document.getElementById('hud-mode') as HTMLDivElement;
   private hudScore = document.getElementById('hud-score') as HTMLDivElement;
   private hudLives = document.getElementById('hud-lives') as HTMLDivElement;
+  private hudCombo = document.getElementById('hud-combo') as HTMLDivElement;
   private overlay = document.getElementById('overlay') as HTMLDivElement;
   private overlayTitle = document.getElementById('overlay-title') as HTMLDivElement;
   private overlaySubtitle = document.getElementById('overlay-subtitle') as HTMLDivElement;
@@ -49,6 +50,8 @@ export class Game {
       input: this.input,
       state: this.state,
       addScore: (amount) => this.addScore(amount),
+      comboHit: (amount) => this.comboHit(amount),
+      breakCombo: () => this.breakCombo(),
       loseLife: () => this.loseLife(),
       finish: (result) => this.handleModeResult(result),
     };
@@ -133,6 +136,8 @@ export class Game {
     this.frozen = false;
     this.state.score = 0;
     this.state.lives = 3;
+    this.state.combo = 0;
+    this.state.bestCombo = 0;
     this.currentIndex = this.menuStage;
     this.currentLevel = this.menuLevel;
     this.current = this.modes[this.currentIndex];
@@ -146,8 +151,27 @@ export class Game {
     this.updateHud();
   }
 
+  /** How much a combo hit is worth, growing every 3 consecutive hits, capped at 4x. */
+  private comboMultiplier(): number {
+    return Math.min(1 + Math.floor(this.state.combo / 3) * 0.5, 4);
+  }
+
+  private comboHit(baseAmount: number): void {
+    const multiplier = this.comboMultiplier();
+    this.state.score += Math.round(baseAmount * multiplier);
+    this.state.combo += 1;
+    this.state.bestCombo = Math.max(this.state.bestCombo, this.state.combo);
+    this.updateHud();
+  }
+
+  private breakCombo(): void {
+    this.state.combo = 0;
+    this.updateHud();
+  }
+
   private loseLife(): void {
     this.state.lives -= 1;
+    this.state.combo = 0;
     this.updateHud();
     if (this.state.lives <= 0) {
       this.current.exit();
@@ -155,7 +179,7 @@ export class Game {
       this.menuStage = 0;
       this.menuLevel = 0;
       this.refreshMenuSelection();
-      this.showOverlay('GAME OVER', `Final score ${this.state.score}`);
+      this.showOverlay('GAME OVER', `Final score ${this.state.score} - best combo x${this.state.bestCombo}`);
     }
   }
 
@@ -188,7 +212,7 @@ export class Game {
     this.menuStage = 0;
     this.menuLevel = 0;
     this.refreshMenuSelection();
-    this.showOverlay('YOU WIN!', `All 5 levels cleared - score ${this.state.score}`);
+    this.showOverlay('YOU WIN!', `All 5 levels cleared - score ${this.state.score} - best combo x${this.state.bestCombo}`);
   }
 
   private applyModeResolution(): void {
@@ -200,6 +224,12 @@ export class Game {
     this.hudMode.textContent = `${this.current.label} L${this.currentLevel + 1}`;
     this.hudScore.textContent = `SCORE ${String(this.state.score).padStart(6, '0')}`;
     this.hudLives.textContent = `LIVES ${Math.max(this.state.lives, 0)}`;
+    if (this.state.combo >= 2) {
+      this.hudCombo.textContent = `COMBO x${this.comboMultiplier()} (${this.state.combo})`;
+      this.hudCombo.classList.remove('hidden');
+    } else {
+      this.hudCombo.classList.add('hidden');
+    }
   }
 
   private showOverlay(title: string, subtitle: string): void {

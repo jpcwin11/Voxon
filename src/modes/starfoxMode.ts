@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameMode, ModeContext } from '../core/types';
-import { buildNebulaTexture } from '../core/pixelArt';
+import { buildArcadeSkyTexture, buildAlienSpriteTexture, buildCheckerGroundTexture } from '../core/pixelArt';
 
 interface Obstacle {
   mesh: THREE.Object3D;
@@ -9,12 +9,18 @@ interface Obstacle {
   hp: number;
   isBoss: boolean;
   destroyed: boolean;
+  grazed: boolean;
 }
 
 interface Bullet {
   mesh: THREE.Mesh;
   vz: number;
   life: number;
+}
+
+interface Pickup {
+  mesh: THREE.Mesh;
+  collected: boolean;
 }
 
 interface StarfoxLevelConfig {
@@ -26,17 +32,17 @@ interface StarfoxLevelConfig {
   spawnMin: number;
   spawnMax: number;
   enemyHp: number;
-  nebulaTint: 'blue' | 'orange';
+  tint: 'blue' | 'orange';
   /** Distance at which a tough boss enemy is forced to spawn, if any. */
   bossAt?: number;
 }
 
 const LEVELS: StarfoxLevelConfig[] = [
-  { name: 'Training Run', travelDistance: 300, speed: 18, archWeight: 0.65, spawnMin: 7, spawnMax: 11, enemyHp: 1, nebulaTint: 'blue' },
-  { name: 'Debris Field', travelDistance: 340, speed: 20, archWeight: 0.7, spawnMin: 6, spawnMax: 9, enemyHp: 1, nebulaTint: 'blue' },
-  { name: 'Enemy Squadron', travelDistance: 380, speed: 22, archWeight: 0.4, spawnMin: 5, spawnMax: 8, enemyHp: 2, nebulaTint: 'orange' },
-  { name: 'Asteroid Storm', travelDistance: 420, speed: 25, archWeight: 0.62, spawnMin: 4, spawnMax: 7, enemyHp: 2, nebulaTint: 'orange' },
-  { name: 'Final Approach', travelDistance: 460, speed: 28, archWeight: 0.45, spawnMin: 4, spawnMax: 6, enemyHp: 3, nebulaTint: 'orange', bossAt: 420 },
+  { name: 'Training Run', travelDistance: 300, speed: 18, archWeight: 0.65, spawnMin: 7, spawnMax: 11, enemyHp: 1, tint: 'blue' },
+  { name: 'Debris Field', travelDistance: 340, speed: 20, archWeight: 0.7, spawnMin: 6, spawnMax: 9, enemyHp: 1, tint: 'blue' },
+  { name: 'Enemy Squadron', travelDistance: 380, speed: 22, archWeight: 0.4, spawnMin: 5, spawnMax: 8, enemyHp: 2, tint: 'orange' },
+  { name: 'Asteroid Storm', travelDistance: 420, speed: 25, archWeight: 0.62, spawnMin: 4, spawnMax: 7, enemyHp: 2, tint: 'orange' },
+  { name: 'Final Approach', travelDistance: 460, speed: 28, archWeight: 0.45, spawnMin: 4, spawnMax: 6, enemyHp: 3, tint: 'orange', bossAt: 420 },
 ];
 
 const BOUNDS_X = 7;
@@ -44,8 +50,10 @@ const BOUNDS_Y = 4.5;
 const SHIP_FORWARD_OFFSET = -4;
 
 /**
- * Starfox-style rail shooter segment: the camera auto-flies forward along -Z while the
- * player's ship strafes within a bounded corridor, dodging arches/enemies and shooting back.
+ * Space-Harrier-style rail shooter segment: the camera auto-flies forward low over a bright
+ * scrolling checkerboard plain beneath a glowing gradient sky, while the player's ship strafes
+ * within a bounded corridor, dodging trees/pillars and enemies, shooting back, and grazing
+ * past obstacles / grabbing gems for combo score.
  */
 export class StarfoxMode implements GameMode {
   readonly id = 'starfox';
@@ -59,19 +67,34 @@ export class StarfoxMode implements GameMode {
   private shipOffset = new THREE.Vector2(0, 0);
   private obstacles: Obstacle[] = [];
   private bullets: Bullet[] = [];
+  private pickups: Pickup[] = [];
   private fireCooldown = 0;
   private invuln = 0;
   private traveled = 0;
   private nextSpawnAt = 0;
-  private starField!: THREE.Points;
+  private nextPickupAt = 0;
+  private engineTrail!: THREE.Points;
+  private trailPositions!: Float32Array;
+  private ground!: THREE.Mesh;
+  private groundMat!: THREE.MeshBasicMaterial;
   private config: StarfoxLevelConfig = LEVELS[0];
   private bossSpawned = false;
-  private nebulaTextures: Record<'blue' | 'orange', THREE.CanvasTexture>;
+  private skyTextures: Record<'blue' | 'orange', THREE.CanvasTexture>;
+  private groundTextures: Record<'blue' | 'orange', THREE.CanvasTexture>;
+  private alienTextures: Record<'blue' | 'red', THREE.CanvasTexture>;
 
   constructor() {
-    this.nebulaTextures = {
-      blue: buildNebulaTexture('blue'),
-      orange: buildNebulaTexture('orange'),
+    this.skyTextures = {
+      blue: buildArcadeSkyTexture('blue'),
+      orange: buildArcadeSkyTexture('orange'),
+    };
+    this.groundTextures = {
+      blue: buildCheckerGroundTexture('blue'),
+      orange: buildCheckerGroundTexture('orange'),
+    };
+    this.alienTextures = {
+      blue: buildAlienSpriteTexture('blue'),
+      red: buildAlienSpriteTexture('red'),
     };
     this.buildScene();
   }
@@ -81,36 +104,66 @@ export class StarfoxMode implements GameMode {
   }
 
   private buildScene(): void {
-    this.scene.fog = new THREE.Fog(0x05080f, 40, 220);
+    this.scene.fog = new THREE.Fog(0xbfe3ff, 60, 260);
 
-    this.scene.add(new THREE.AmbientLight(0x6677ff, 0.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    const sun = new THREE.DirectionalLight(0xffffff, 0.8);
     sun.position.set(5, 10, 5);
     this.scene.add(sun);
 
-    // Scrolling starfield for a sense of forward speed.
-    const starGeo = new THREE.BufferGeometry();
-    const starCount = 800;
-    const positions = new Float32Array(starCount * 3);
-    for (let i = 0; i < starCount; i++) {
-      positions[i * 3] = (Math.random() - 0.5) * 120;
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 80;
-      positions[i * 3 + 2] = -Math.random() * 400;
+    // Bright checkerboard ground plane, the signature Space Harrier shot: a vast, scrolling
+    // floor that reads instantly as "fast arcade flight" rather than empty space.
+    for (const tex of Object.values(this.groundTextures)) {
+      tex.repeat.set(80, 80);
     }
-    starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.starField = new THREE.Points(
-      starGeo,
-      new THREE.PointsMaterial({ color: 0xaad4ff, size: 0.6, sizeAttenuation: true }),
-    );
-    this.scene.add(this.starField);
+    this.groundMat = new THREE.MeshBasicMaterial({ map: this.groundTextures.blue, fog: true });
+    this.ground = new THREE.Mesh(new THREE.PlaneGeometry(800, 800), this.groundMat);
+    this.ground.rotation.x = -Math.PI / 2;
+    this.ground.position.y = -3.2;
+    this.scene.add(this.ground);
 
-    // Simple scrolling "canyon floor" grid to sell the sense of flying low.
-    const floor = new THREE.GridHelper(400, 60, 0x2255ff, 0x113377);
-    floor.position.y = -6;
-    this.scene.add(floor);
+    // Trailing particle stream behind the engine for a sense of thrust.
+    const trailCount = 24;
+    this.trailPositions = new Float32Array(trailCount * 3);
+    const trailGeo = new THREE.BufferGeometry();
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(this.trailPositions, 3));
+    this.engineTrail = new THREE.Points(
+      trailGeo,
+      new THREE.PointsMaterial({ color: 0xffaa33, size: 0.35, transparent: true, opacity: 0.8, sizeAttenuation: true }),
+    );
+    this.scene.add(this.engineTrail);
 
     this.ship.add(this.buildShipModel());
     this.scene.add(this.ship);
+  }
+
+  /** Builds a chunky tree/pillar obstacle that must be dodged (flown around, not shot). */
+  private buildTreeObstacle(): THREE.Object3D {
+    const group = new THREE.Group();
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.3, 0.4, 1.6, 6),
+      new THREE.MeshStandardMaterial({ color: 0x6b4328, flatShading: true }),
+    );
+    trunk.position.y = 0.8;
+    group.add(trunk);
+    const foliageColor = Math.random() < 0.5 ? 0x2f8f4e : 0x3fae5e;
+    const foliage = new THREE.Mesh(
+      new THREE.ConeGeometry(1.3, 2.2, 7),
+      new THREE.MeshStandardMaterial({ color: foliageColor, flatShading: true }),
+    );
+    foliage.position.y = 2.4;
+    group.add(foliage);
+    return group;
+  }
+
+  /** Builds a small camera-facing alien billboard sprite, the signature Space Harrier enemy look. */
+  private buildAlienSprite(hp: number): THREE.Mesh {
+    const tex = this.alienTextures[hp > 1 ? 'red' : 'blue'];
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.4, 1.4),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true }),
+    );
+    return mesh;
   }
 
   /** Builds a small, readable multi-part fighter silhouette with emissive trim accents. */
@@ -159,9 +212,12 @@ export class StarfoxMode implements GameMode {
 
   enter(ctx: ModeContext, level: number): void {
     this.config = LEVELS[level] ?? LEVELS[0];
-    this.scene.background = this.nebulaTextures[this.config.nebulaTint];
+    this.scene.background = this.skyTextures[this.config.tint];
+    this.groundMat.map = this.groundTextures[this.config.tint];
+    this.groundMat.needsUpdate = true;
     this.traveled = 0;
     this.nextSpawnAt = 10;
+    this.nextPickupAt = 16;
     this.invuln = 1.5;
     this.bossSpawned = false;
     this.shipOffset.set(0, 0);
@@ -169,7 +225,10 @@ export class StarfoxMode implements GameMode {
     this.obstacles = [];
     this.bullets.forEach((b) => this.scene.remove(b.mesh));
     this.bullets = [];
+    this.pickups.forEach((p) => this.scene.remove(p.mesh));
+    this.pickups = [];
     this.camera.position.set(0, 0.8, 8);
+
     void ctx;
   }
 
@@ -206,6 +265,10 @@ export class StarfoxMode implements GameMode {
 
     this.camera.lookAt(this.ship.position.x * 0.4, 0.8 + this.ship.position.y * 0.1, this.camera.position.z - 20);
 
+    // Scroll the checkerboard ground texture to sell forward speed without moving the huge plane mesh.
+    this.ground.position.z = this.camera.position.z;
+    this.groundMat.map?.offset.set(0, -this.camera.position.z * 0.05);
+
     // Firing.
     this.fireCooldown -= dt;
     if (input.anyHeld(['Space', 'KeyJ']) && this.fireCooldown <= 0) {
@@ -216,14 +279,30 @@ export class StarfoxMode implements GameMode {
     this.updateBullets(dt);
     this.spawnObstacles();
     this.updateObstacles(dt, ctx);
-
-    this.starField.position.z = this.camera.position.z * 0.02;
+    this.spawnPickups();
+    this.updatePickups(ctx);
+    this.updateEngineTrail();
 
     if (this.invuln > 0) this.invuln -= dt;
 
     if (this.traveled >= this.config.travelDistance) {
       ctx.finish({ kind: 'advance' });
     }
+  }
+
+  /** Shifts a short history of ship positions into the trailing engine-glow particle stream. */
+  private updateEngineTrail(): void {
+    const positions = this.trailPositions;
+    const count = positions.length / 3;
+    for (let i = count - 1; i > 0; i--) {
+      positions[i * 3] = positions[(i - 1) * 3];
+      positions[i * 3 + 1] = positions[(i - 1) * 3 + 1];
+      positions[i * 3 + 2] = positions[(i - 1) * 3 + 2];
+    }
+    positions[0] = this.ship.position.x;
+    positions[1] = this.ship.position.y - 0.05;
+    positions[2] = this.ship.position.z + 0.9;
+    (this.engineTrail.geometry as THREE.BufferGeometry).attributes.position.needsUpdate = true;
   }
 
   private spawnBullet(): void {
@@ -265,31 +344,25 @@ export class StarfoxMode implements GameMode {
     const spawnZ = this.camera.position.z - 140;
     const roll = Math.random();
     if (roll < this.config.archWeight) {
-      // Arch obstacle: must be dodged (fly through the gap).
-      const arch = new THREE.Mesh(
-        new THREE.TorusGeometry(2.1, 0.35, 8, 16),
-        new THREE.MeshStandardMaterial({ color: 0xff6644, emissive: 0x551100, emissiveIntensity: 0.4, flatShading: true }),
-      );
-      arch.position.set(
-        THREE.MathUtils.randFloatSpread(BOUNDS_X * 1.6),
-        THREE.MathUtils.randFloatSpread(BOUNDS_Y * 1.4),
+      // Tree/pillar obstacle: planted on the ground, must be dodged (flown around or over).
+      const tree = this.buildTreeObstacle();
+      tree.position.set(
+        THREE.MathUtils.randFloatSpread(BOUNDS_X * 1.7),
+        -3.2 + THREE.MathUtils.randFloat(0, 0.6),
         spawnZ,
       );
-      this.scene.add(arch);
-      this.obstacles.push({ mesh: arch, radius: 1.5, kind: 'arch', hp: 999, isBoss: false, destroyed: false });
+      this.scene.add(tree);
+      this.obstacles.push({ mesh: tree, radius: 1.1, kind: 'arch', hp: 999, isBoss: false, destroyed: false, grazed: false });
     } else {
-      // Enemy fighter: can be shot for points, or will collide if left alone.
-      const enemy = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.7),
-        new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0x552200, emissiveIntensity: 0.5, flatShading: true }),
-      );
+      // Alien sprite enemy: can be shot for points, or will collide if left alone.
+      const enemy = this.buildAlienSprite(this.config.enemyHp);
       enemy.position.set(
         THREE.MathUtils.randFloatSpread(BOUNDS_X * 1.6),
         THREE.MathUtils.randFloatSpread(BOUNDS_Y * 1.4),
         spawnZ,
       );
       this.scene.add(enemy);
-      this.obstacles.push({ mesh: enemy, radius: 0.9, kind: 'enemy', hp: this.config.enemyHp, isBoss: false, destroyed: false });
+      this.obstacles.push({ mesh: enemy, radius: 0.85, kind: 'enemy', hp: this.config.enemyHp, isBoss: false, destroyed: false, grazed: false });
     }
   }
 
@@ -300,7 +373,7 @@ export class StarfoxMode implements GameMode {
     );
     boss.position.set(0, 0, this.camera.position.z - 150);
     this.scene.add(boss);
-    this.obstacles.push({ mesh: boss, radius: 2, kind: 'enemy', hp: 6, isBoss: true, destroyed: false });
+    this.obstacles.push({ mesh: boss, radius: 2, kind: 'enemy', hp: 6, isBoss: true, destroyed: false, grazed: false });
   }
 
   private updateObstacles(_dt: number, ctx: ModeContext): void {
@@ -313,6 +386,9 @@ export class StarfoxMode implements GameMode {
       if (o.isBoss) {
         o.mesh.position.x = Math.sin(this.traveled * 0.05) * BOUNDS_X * 0.6;
         o.mesh.rotation.y += _dt * 0.6;
+      } else if (o.kind === 'enemy') {
+        // Billboard the alien sprite so it always faces the camera, arcade-shooter style.
+        o.mesh.quaternion.copy(this.camera.quaternion);
       }
 
       // Bullet collision check (enemies only).
@@ -326,7 +402,7 @@ export class StarfoxMode implements GameMode {
             if (o.hp <= 0) {
               o.destroyed = true;
               this.scene.remove(o.mesh);
-              ctx.addScore(o.isBoss ? 600 : 100);
+              ctx.comboHit(o.isBoss ? 600 : 100);
             }
             break;
           }
@@ -346,7 +422,13 @@ export class StarfoxMode implements GameMode {
             this.scene.remove(o.mesh);
           }
           this.invuln = 2;
+          ctx.breakCombo();
           ctx.loseLife();
+        } else if (dist < o.radius + 1.3 && !o.grazed) {
+          // Near-miss: flew close by without colliding. Small combo-building bonus,
+          // rewarding tight, confident flying through tree gaps and past enemies.
+          o.grazed = true;
+          ctx.comboHit(20);
         }
       }
 
@@ -354,6 +436,43 @@ export class StarfoxMode implements GameMode {
       if (!o.isBoss && o.mesh.position.z > this.camera.position.z + 10) {
         this.scene.remove(o.mesh);
         this.obstacles.splice(i, 1);
+      }
+    }
+  }
+
+  /** Spawns a floating gem pickup along the corridor every so often for easy combo score. */
+  private spawnPickups(): void {
+    if (this.traveled < this.nextPickupAt) return;
+    this.nextPickupAt = this.traveled + THREE.MathUtils.randFloat(9, 14);
+
+    const gem = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.4, 0),
+      new THREE.MeshStandardMaterial({ color: 0xffe14d, emissive: 0xaa8800, emissiveIntensity: 0.9, flatShading: true }),
+    );
+    gem.position.set(
+      THREE.MathUtils.randFloatSpread(BOUNDS_X * 1.4),
+      THREE.MathUtils.randFloatSpread(BOUNDS_Y * 1.2),
+      this.camera.position.z - 140,
+    );
+    this.scene.add(gem);
+    this.pickups.push({ mesh: gem, collected: false });
+  }
+
+  private updatePickups(ctx: ModeContext): void {
+    const shipPos = this.ship.position;
+    for (let i = this.pickups.length - 1; i >= 0; i--) {
+      const p = this.pickups[i];
+      p.mesh.rotation.y += 0.08;
+      if (!p.collected && p.mesh.position.distanceTo(shipPos) < 1.1) {
+        p.collected = true;
+        this.scene.remove(p.mesh);
+        this.pickups.splice(i, 1);
+        ctx.comboHit(50);
+        continue;
+      }
+      if (p.mesh.position.z > this.camera.position.z + 10) {
+        this.scene.remove(p.mesh);
+        this.pickups.splice(i, 1);
       }
     }
   }
