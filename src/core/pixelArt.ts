@@ -233,3 +233,206 @@ export function buildNebulaTexture(tint: 'blue' | 'orange'): THREE.CanvasTexture
 
   return toTexture(canvas);
 }
+
+/** Diagonal yellow/black hazard-stripe texture for dangerous Zaxxon industrial surfaces. */
+export function buildHazardStripeTexture(): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(16, 16);
+  ctx.fillStyle = '#2a2a2a';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#ffcc00';
+  // Four diagonal stripes drawn as thick parallelograms so the pattern tiles seamlessly.
+  for (let i = -16; i < 32; i += 8) {
+    ctx.beginPath();
+    ctx.moveTo(i, 16);
+    ctx.lineTo(i + 16, 0);
+    ctx.lineTo(i + 20, 0);
+    ctx.lineTo(i + 4, 16);
+    ctx.closePath();
+    ctx.fill();
+  }
+  return toTexture(canvas, { repeat: true });
+}
+
+/** Small 8x8 spinning gold coin frame; call twice with `frame` 0/1 for a shimmer animation. */
+export function buildCoinTexture(frame: 0 | 1 = 0): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(8, 8);
+  const rimWidth = frame === 0 ? 3 : 1;
+  ctx.fillStyle = '#8a6a1a';
+  ctx.fillRect(4 - rimWidth / 2, 1, Math.max(rimWidth, 1), 6);
+  ctx.fillStyle = '#ffd94a';
+  ctx.fillRect(1, 1, 6, 6);
+  ctx.fillStyle = '#fff3b0';
+  ctx.fillRect(2, 2, 3, 2);
+  ctx.fillStyle = '#b8860b';
+  ctx.fillRect(1, 6, 6, 1);
+  return toTexture(canvas, { transparent: true });
+}
+
+/** A wide, tileable layered-silhouette mountain band for on-foot parallax backgrounds. */
+export function buildMountainBandTexture(variant: 'day' | 'dusk' | 'night'): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(256, 64);
+  const color =
+    variant === 'day' ? '#2f6f4e' : variant === 'dusk' ? '#4a2f63' : '#131a33';
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, 64);
+  const peaks = 6;
+  for (let i = 0; i <= peaks; i++) {
+    const x = (i / peaks) * 256;
+    const y = 64 - (18 + Math.sin(i * 1.7) * 10 + ((i % 2) * 8));
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(256, 64);
+  ctx.closePath();
+  ctx.fill();
+  return toTexture(canvas, { repeat: true });
+}
+
+/** Bright, high-contrast two-tone checkerboard ground, the signature Space Harrier floor. */
+export function buildCheckerGroundTexture(tint: 'blue' | 'orange'): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(16, 16);
+  const [a, b] = tint === 'blue' ? ['#ff3355', '#ffffff'] : ['#ff8a1f', '#ffe9b0'];
+  ctx.fillStyle = a;
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = b;
+  ctx.fillRect(0, 0, 8, 8);
+  ctx.fillRect(8, 8, 8, 8);
+  return toTexture(canvas, { repeat: true });
+}
+
+/** Bright arcade sky gradient with a glowing horizon sun, Space-Harrier style (not deep-space). */
+export function buildArcadeSkyTexture(tint: 'blue' | 'orange'): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(256, 256);
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  if (tint === 'blue') {
+    grad.addColorStop(0, '#1a3fd6');
+    grad.addColorStop(0.55, '#4a8ef0');
+    grad.addColorStop(0.72, '#bfe3ff');
+    grad.addColorStop(1, '#eafcff');
+  } else {
+    grad.addColorStop(0, '#7a1a6a');
+    grad.addColorStop(0.5, '#e04a3f');
+    grad.addColorStop(0.75, '#ffb23f');
+    grad.addColorStop(1, '#fff3c2');
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Glowing sun disc sitting on the horizon band.
+  const sunColor = tint === 'blue' ? '255,240,200' : '255,255,220';
+  const sunY = 185;
+  const sunGlow = ctx.createRadialGradient(128, sunY, 0, 128, sunY, 90);
+  sunGlow.addColorStop(0, `rgba(${sunColor},0.9)`);
+  sunGlow.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sunGlow;
+  ctx.fillRect(0, sunY - 90, 256, 180);
+  ctx.fillStyle = tint === 'blue' ? '#fff9e0' : '#fff6cf';
+  ctx.beginPath();
+  ctx.arc(128, sunY, 46, 0, Math.PI * 2);
+  ctx.fill();
+
+  // A couple of flat cloud/mesa silhouettes for depth near the horizon.
+  ctx.fillStyle = tint === 'blue' ? 'rgba(255,255,255,0.8)' : 'rgba(120,40,60,0.5)';
+  ctx.fillRect(10, 170, 60, 10);
+  ctx.fillRect(190, 160, 56, 8);
+  return toTexture(canvas);
+}
+
+/** Small billboard "alien" creature sprite for Space-Harrier-style floating enemies. */
+export function buildAlienSpriteTexture(variant: 'blue' | 'red'): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(16, 16);
+  const body = variant === 'blue' ? '#3fd0ff' : '#ff4466';
+  const dark = variant === 'blue' ? '#1a6fa0' : '#a01030';
+
+  ctx.fillStyle = body;
+  ctx.fillRect(4, 2, 8, 2);
+  ctx.fillRect(2, 4, 12, 7);
+  ctx.fillRect(4, 11, 8, 2);
+  ctx.fillStyle = dark;
+  ctx.fillRect(2, 9, 12, 2);
+  // Wing fins.
+  ctx.fillStyle = dark;
+  ctx.fillRect(0, 6, 3, 3);
+  ctx.fillRect(13, 6, 3, 3);
+  // Eyes.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(5, 6, 2, 3);
+  ctx.fillRect(9, 6, 2, 3);
+  ctx.fillStyle = '#0b0b0b';
+  ctx.fillRect(5, 7, 1, 1);
+  ctx.fillRect(9, 7, 1, 1);
+
+  return toTexture(canvas, { transparent: true });
+}
+
+export type DungeonTint = 'stone' | 'moss' | 'fire' | 'ice' | 'shadow';
+
+const DUNGEON_PALETTE: Record<DungeonTint, { base: string; dark: string; crack: string }> = {
+  stone: { base: '#8a8a92', dark: '#5c5c66', crack: '#454650' },
+  moss: { base: '#6e8a5a', dark: '#44593a', crack: '#2d3a26' },
+  fire: { base: '#9a4630', dark: '#5e2719', crack: '#2e1210' },
+  ice: { base: '#6f9ecf', dark: '#3f5f87', crack: '#28394f' },
+  shadow: { base: '#403a4d', dark: '#241f2e', crack: '#120f18' },
+};
+
+/** Isometric dungeon floor stone tile, tinted per-level for mood (The Immortal style). */
+export function buildDungeonFloorTexture(tint: DungeonTint): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(16, 16);
+  const p = DUNGEON_PALETTE[tint];
+  ctx.fillStyle = p.base;
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = p.dark;
+  ctx.fillRect(0, 0, 16, 1);
+  ctx.fillRect(0, 0, 1, 16);
+  ctx.fillRect(8, 0, 1, 16);
+  ctx.fillRect(0, 8, 16, 1);
+  ctx.fillStyle = p.crack;
+  ctx.fillRect(3, 3, 1, 1);
+  ctx.fillRect(11, 10, 1, 1);
+  ctx.fillRect(6, 12, 2, 1);
+  return toTexture(canvas, { repeat: true });
+}
+
+/** Raised stone wall block texture, tinted per-level to match the floor palette. */
+export function buildDungeonWallTexture(tint: DungeonTint): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(16, 16);
+  const p = DUNGEON_PALETTE[tint];
+  ctx.fillStyle = p.dark;
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = p.base;
+  ctx.fillRect(0, 0, 7, 6);
+  ctx.fillRect(8, 0, 8, 6);
+  ctx.fillRect(0, 7, 7, 6);
+  ctx.fillRect(8, 7, 8, 6);
+  ctx.fillStyle = p.crack;
+  ctx.fillRect(0, 6, 16, 1);
+  ctx.fillRect(0, 13, 16, 1);
+  ctx.fillRect(7, 0, 1, 6);
+  ctx.fillRect(7, 7, 1, 6);
+  return toTexture(canvas, { repeat: true });
+}
+
+/** Dark bottomless pit tile with a faint jagged edge, a fall hazard in the dungeon crawler. */
+export function buildDungeonPitTexture(): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(16, 16);
+  ctx.fillStyle = '#05050a';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#17141f';
+  ctx.fillRect(1, 1, 14, 1);
+  ctx.fillRect(1, 1, 1, 14);
+  ctx.fillRect(14, 1, 1, 14);
+  ctx.fillRect(1, 14, 14, 1);
+  return toTexture(canvas, { repeat: true });
+}
+
+/** Glowing exit-stairway tile marking the way to the next dungeon level. */
+export function buildDungeonExitTexture(): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(16, 16);
+  ctx.fillStyle = '#2a2033';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#ffdf7a';
+  for (let i = 0; i < 4; i++) {
+    ctx.fillRect(2 + i, 12 - i * 3, 12 - i * 2, 2);
+  }
+  return toTexture(canvas);
+}
