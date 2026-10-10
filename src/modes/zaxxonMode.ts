@@ -307,9 +307,10 @@ export class ZaxxonMode implements GameMode {
         const inGap = ship.y > w.gapBottom + 0.3 && ship.y < w.gapTop - 0.3;
         if (!inGap && this.invuln <= 0) {
           this.invuln = 2;
+          ctx.breakCombo();
           ctx.loseLife();
         } else if (inGap) {
-          ctx.addScore(50);
+          ctx.comboHit(50);
         }
       }
       if (w.mesh.position.z > ship.z + 10) {
@@ -332,7 +333,7 @@ export class ZaxxonMode implements GameMode {
           this.bullets.splice(bi, 1);
           p.destroyed = true;
           this.scene.remove(p.mesh);
-          ctx.addScore(150);
+          ctx.comboHit(150);
           break;
         }
       }
@@ -346,6 +347,7 @@ export class ZaxxonMode implements GameMode {
           p.destroyed = true;
           this.scene.remove(p.mesh);
           this.invuln = 2;
+          ctx.breakCombo();
           ctx.loseLife();
         }
       }
