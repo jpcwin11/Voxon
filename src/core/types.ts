@@ -7,11 +7,13 @@ export interface GameState {
   lives: number;
 }
 
+/** Every stage offers this many hand-tuned difficulty levels. */
+export const LEVEL_COUNT = 5;
+
 /** Outcome a mode reports when it finishes, telling the orchestrator what's next. */
 export type ModeResult =
   | { kind: 'advance' }
-  | { kind: 'playerDied' }
-  | { kind: 'gameComplete' };
+  | { kind: 'playerDied' };
 
 /** Services every mode needs; supplied by the orchestrator so modes stay decoupled. */
 export interface ModeContext {
@@ -35,7 +37,10 @@ export interface GameMode {
   readonly pixelWidth: number;
   readonly pixelHeight: number;
 
-  enter(ctx: ModeContext): void;
+  /** Human-readable name for a given level index (0-based), shown in the HUD and menu. */
+  levelName(level: number): string;
+
+  enter(ctx: ModeContext, level: number): void;
   update(dt: number, ctx: ModeContext): void;
   resize(width: number, height: number): void;
   exit(): void;
