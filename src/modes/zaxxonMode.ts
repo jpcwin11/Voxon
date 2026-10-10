@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { GameMode, ModeContext } from '../core/types';
+import { buildNebulaTexture, buildPanelTexture, buildZaxxonFloorTexture } from '../core/pixelArt';
 
 interface WallObstacle {
   mesh: THREE.Group;
@@ -16,10 +17,30 @@ interface Pillar {
   destroyed: boolean;
 }
 
+interface ZaxxonLevelConfig {
+  name: string;
+  travelDistance: number;
+  speed: number;
+  wallFreqMin: number;
+  wallFreqMax: number;
+  gapMin: number;
+  gapMax: number;
+  pillarFreqMin: number;
+  pillarFreqMax: number;
+  nebulaTint: 'blue' | 'orange';
+}
+
+const LEVELS: ZaxxonLevelConfig[] = [
+  { name: 'Hangar Bay', travelDistance: 300, speed: 13, wallFreqMin: 28, wallFreqMax: 36, gapMin: 2.8, gapMax: 3.4, pillarFreqMin: 14, pillarFreqMax: 20, nebulaTint: 'blue' },
+  { name: 'Outer Perimeter', travelDistance: 330, speed: 15, wallFreqMin: 24, wallFreqMax: 32, gapMin: 2.6, gapMax: 3.2, pillarFreqMin: 12, pillarFreqMax: 18, nebulaTint: 'blue' },
+  { name: 'Reactor Core', travelDistance: 360, speed: 17, wallFreqMin: 20, wallFreqMax: 28, gapMin: 2.3, gapMax: 2.9, pillarFreqMin: 10, pillarFreqMax: 16, nebulaTint: 'orange' },
+  { name: 'Canyon Run', travelDistance: 390, speed: 19, wallFreqMin: 18, wallFreqMax: 24, gapMin: 2.0, gapMax: 2.6, pillarFreqMin: 8, pillarFreqMax: 14, nebulaTint: 'orange' },
+  { name: 'Fortress Assault', travelDistance: 420, speed: 22, wallFreqMin: 16, wallFreqMax: 22, gapMin: 1.8, gapMax: 2.4, pillarFreqMin: 7, pillarFreqMax: 12, nebulaTint: 'orange' },
+];
+
 const LANE_HALF_WIDTH = 6;
 const ALTITUDE_MIN = 0.4;
 const ALTITUDE_MAX = 7;
-const TRAVEL_DISTANCE = 360;
 const FRUSTUM_SIZE = 16;
 
 /**
@@ -48,29 +69,39 @@ export class ZaxxonMode implements GameMode {
   private nextWallAt = 0;
   private nextPillarAt = 0;
   private cameraOffset = new THREE.Vector3(14, 14, 14);
+  private config: ZaxxonLevelConfig = LEVELS[0];
+  private wallMat!: THREE.MeshStandardMaterial;
+  private pillarMat!: THREE.MeshStandardMaterial;
+  private nebulaTextures: Record<'blue' | 'orange', THREE.CanvasTexture>;
 
   constructor() {
+    this.nebulaTextures = {
+      blue: buildNebulaTexture('blue'),
+      orange: buildNebulaTexture('orange'),
+    };
     this.buildScene();
   }
 
+  levelName(level: number): string {
+    return LEVELS[level].name;
+  }
+
   private buildScene(): void {
-    this.scene.background = new THREE.Color(0x05080f);
     this.scene.add(new THREE.AmbientLight(0x8899cc, 0.7));
     const sun = new THREE.DirectionalLight(0xffffff, 1.1);
     sun.position.set(10, 20, 10);
     this.scene.add(sun);
 
-    // Scrolling ground plane with a grid to read the diagonal "runway" like the arcade original.
+    // Scrolling ground plane with a checkered panel texture, like the arcade base runway.
+    const floorTex = buildZaxxonFloorTexture();
+    floorTex.repeat.set((LANE_HALF_WIDTH * 2 + 4) / 2, 250);
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(LANE_HALF_WIDTH * 2 + 4, 500),
-      new THREE.MeshStandardMaterial({ color: 0x113322 }),
+      new THREE.MeshStandardMaterial({ map: floorTex }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, 0, -150);
     this.scene.add(ground);
-    const grid = new THREE.GridHelper(500, 60, 0x2a6b3f, 0x184a2c);
-    grid.position.set(0, 0.01, -150);
-    this.scene.add(grid);
 
     this.shadow = new THREE.Mesh(
       new THREE.CircleGeometry(0.6, 16),
@@ -79,21 +110,55 @@ export class ZaxxonMode implements GameMode {
     this.shadow.rotation.x = -Math.PI / 2;
     this.scene.add(this.shadow);
 
-    const body = new THREE.Mesh(
-      new THREE.ConeGeometry(0.55, 1.6, 4),
+    this.wallMat = new THREE.MeshStandardMaterial({
+      map: buildPanelTexture('#4455cc', '#7788ee'),
+      flatShading: true,
+    });
+    this.pillarMat = new THREE.MeshStandardMaterial({
+      map: buildPanelTexture('#aa3344', '#dd6677'),
+      flatShading: true,
+    });
+
+    this.ship.add(this.buildShipModel());
+    this.scene.add(this.ship);
+  }
+
+  /** Builds a small, readable multi-part fighter silhouette with emissive trim accents. */
+  private buildShipModel(): THREE.Object3D {
+    const group = new THREE.Group();
+    const hull = new THREE.Mesh(
+      new THREE.ConeGeometry(0.5, 1.7, 4),
       new THREE.MeshStandardMaterial({ color: 0xffe08a, flatShading: true }),
     );
-    body.rotation.x = Math.PI / 2;
-    body.rotation.y = Math.PI / 4;
+    hull.rotation.x = Math.PI / 2;
+    hull.rotation.y = Math.PI / 4;
+    group.add(hull);
+
+    const cockpit = new THREE.Mesh(
+      new THREE.SphereGeometry(0.24, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0x3fd0ff, emissive: 0x1a6fa0, emissiveIntensity: 0.8 }),
+    );
+    cockpit.position.set(0, 0.18, 0.25);
+    group.add(cockpit);
+
     const wings = new THREE.Mesh(
       new THREE.BoxGeometry(2, 0.08, 0.6),
       new THREE.MeshStandardMaterial({ color: 0xff8844, flatShading: true }),
     );
-    this.ship.add(body, wings);
-    this.scene.add(this.ship);
+    group.add(wings);
+
+    const engineMat = new THREE.MeshStandardMaterial({ color: 0xffaa33, emissive: 0xff8800, emissiveIntensity: 1.1 });
+    const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.4, 8), engineMat);
+    engine.rotation.x = Math.PI / 2;
+    engine.position.set(0, -0.05, 0.75);
+    group.add(engine);
+
+    return group;
   }
 
-  enter(ctx: ModeContext): void {
+  enter(ctx: ModeContext, level: number): void {
+    this.config = LEVELS[level] ?? LEVELS[0];
+    this.scene.background = this.nebulaTextures[this.config.nebulaTint];
     this.traveled = 0;
     this.nextWallAt = 14;
     this.nextPillarAt = 8;
@@ -121,7 +186,7 @@ export class ZaxxonMode implements GameMode {
 
   update(dt: number, ctx: ModeContext): void {
     const { input } = ctx;
-    const speed = 16;
+    const speed = this.config.speed;
     this.traveled += speed * dt;
 
     const shipForwardZ = this.ship.position.z - speed * dt;
@@ -157,7 +222,7 @@ export class ZaxxonMode implements GameMode {
 
     if (this.invuln > 0) this.invuln -= dt;
 
-    if (this.traveled >= TRAVEL_DISTANCE) {
+    if (this.traveled >= this.config.travelDistance) {
       ctx.finish({ kind: 'advance' });
     }
   }
@@ -187,19 +252,18 @@ export class ZaxxonMode implements GameMode {
 
   private spawnWalls(): void {
     if (this.traveled < this.nextWallAt) return;
-    this.nextWallAt = this.traveled + THREE.MathUtils.randFloat(22, 32);
+    this.nextWallAt = this.traveled + THREE.MathUtils.randFloat(this.config.wallFreqMin, this.config.wallFreqMax);
 
-    const gapHeight = THREE.MathUtils.randFloat(2.4, 3.2);
+    const gapHeight = THREE.MathUtils.randFloat(this.config.gapMin, this.config.gapMax);
     const gapBottom = THREE.MathUtils.randFloat(ALTITUDE_MIN, ALTITUDE_MAX - gapHeight);
     const gapTop = gapBottom + gapHeight;
     const z = this.ship.position.z - 90;
 
     const group = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x5566ee, flatShading: true });
     if (gapBottom > ALTITUDE_MIN + 0.1) {
       const lower = new THREE.Mesh(
         new THREE.BoxGeometry(LANE_HALF_WIDTH * 2 + 2, gapBottom, 0.8),
-        mat,
+        this.wallMat,
       );
       lower.position.set(0, gapBottom / 2, 0);
       group.add(lower);
@@ -208,7 +272,7 @@ export class ZaxxonMode implements GameMode {
       const upperHeight = ALTITUDE_MAX + 3 - gapTop;
       const upper = new THREE.Mesh(
         new THREE.BoxGeometry(LANE_HALF_WIDTH * 2 + 2, upperHeight, 0.8),
-        mat,
+        this.wallMat,
       );
       upper.position.set(0, gapTop + upperHeight / 2, 0);
       group.add(upper);
@@ -220,14 +284,14 @@ export class ZaxxonMode implements GameMode {
 
   private spawnPillars(): void {
     if (this.traveled < this.nextPillarAt) return;
-    this.nextPillarAt = this.traveled + THREE.MathUtils.randFloat(10, 18);
+    this.nextPillarAt = this.traveled + THREE.MathUtils.randFloat(this.config.pillarFreqMin, this.config.pillarFreqMax);
 
     const z = this.ship.position.z - 70;
     const x = THREE.MathUtils.randFloatSpread(LANE_HALF_WIDTH * 1.8);
     const height = THREE.MathUtils.randFloat(2, 4.5);
     const pillar = new THREE.Mesh(
       new THREE.CylinderGeometry(0.5, 0.6, height, 8),
-      new THREE.MeshStandardMaterial({ color: 0xaa3344, flatShading: true }),
+      this.pillarMat,
     );
     pillar.position.set(x, height / 2, z);
     this.scene.add(pillar);
