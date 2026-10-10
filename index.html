@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voxon</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas"></canvas>
+      <div id="hud">
+        <div id="hud-mode">STARFOX</div>
+        <div id="hud-score">SCORE 000000</div>
+        <div id="hud-lives">LIVES 3</div>
+      </div>
+      <div id="overlay" class="hidden">
+        <div id="overlay-title"></div>
+        <div id="overlay-subtitle">Press ENTER / SPACE</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
