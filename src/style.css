@@ -61,6 +61,28 @@ body {
   text-shadow: 0 0 6px rgba(255, 59, 59, 0.6);
 }
 
+#hud-combo {
+  color: #ff66ff;
+  text-shadow: 0 0 8px rgba(255, 102, 255, 0.8);
+  font-weight: bold;
+  animation: combo-pop 0.25s ease-out;
+}
+
+#hud-combo.hidden {
+  display: none;
+}
+
+@keyframes combo-pop {
+  from {
+    transform: scale(1.4);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 #overlay {
   position: absolute;
   inset: 0;

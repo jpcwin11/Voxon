@@ -5,6 +5,9 @@ import type { Input } from './input';
 export interface GameState {
   score: number;
   lives: number;
+  /** Consecutive scoring hits (kills/pickups) without taking damage; drives the score multiplier. */
+  combo: number;
+  bestCombo: number;
 }
 
 /** Every stage offers this many hand-tuned difficulty levels. */
@@ -22,6 +25,10 @@ export interface ModeContext {
   state: GameState;
   /** Report score deltas, hits, etc. back to the HUD/orchestrator. */
   addScore(amount: number): void;
+  /** Scores a kill/pickup with the current combo multiplier applied, then grows the combo. */
+  comboHit(baseAmount: number): void;
+  /** Resets the combo streak back to zero (on taking damage, falling, etc.). */
+  breakCombo(): void;
   loseLife(): void;
   /** Resolve this mode and let the orchestrator move to the next one. */
   finish(result: ModeResult): void;
