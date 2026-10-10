@@ -91,3 +91,45 @@ body {
   letter-spacing: 2px;
   opacity: 0.8;
 }
+
+#stage-menu {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-row {
+  display: flex;
+  gap: 14px;
+  font-size: 15px;
+  letter-spacing: 2px;
+}
+
+.menu-row span {
+  padding: 4px 10px;
+  border: 1px solid rgba(57, 255, 106, 0.3);
+  opacity: 0.55;
+}
+
+.menu-row span.selected {
+  opacity: 1;
+  color: #000;
+  background: var(--hud-green);
+  border-color: var(--hud-green);
+  text-shadow: none;
+}
+
+#level-name {
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--hud-amber);
+  min-height: 16px;
+}
+
+.menu-hint {
+  font-size: 11px;
+  opacity: 0.6;
+  letter-spacing: 1px;
+}
